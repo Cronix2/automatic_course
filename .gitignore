@@ -216,3 +216,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project-specific
+node_modules/
+dist/
+.vite/
+data/
+*.sqlite*
+models/
+.playwright/
+playwright-report/
+!.env.example
+

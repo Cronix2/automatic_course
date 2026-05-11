@@ -1,0 +1,14 @@
+"""Shared FastAPI dependencies."""
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.session import get_db
+
+
+# Re-export for convenience
+async def db_session() -> AsyncIterator[AsyncSession]:
+    async for s in get_db():
+        yield s
