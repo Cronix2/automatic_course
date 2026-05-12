@@ -10,7 +10,9 @@ from app.services.secrets_service import get_secret
 
 from .anthropic import AnthropicProvider
 from .base import AIProvider, ProviderCredentials
+from .github_copilot import GitHubCopilotProvider
 from .openai_compatible import (
+    CustomOpenAIProvider,
     GitHubModelsProvider,
     OllamaProvider,
     OpenAIProvider,
@@ -22,7 +24,9 @@ _REGISTRY: dict[str, Type[AIProvider]] = {
     "openai": OpenAIProvider,
     "anthropic": AnthropicProvider,
     "github_models": GitHubModelsProvider,
+    "github_copilot": GitHubCopilotProvider,
     "ollama": OllamaProvider,
+    "custom": CustomOpenAIProvider,
 }
 
 

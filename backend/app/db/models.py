@@ -78,3 +78,32 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), index=True
     )
+
+
+class CachedCourse(Base):
+    """Local cache of a fetched TryHackMe course + its AI-enhanced version.
+
+    The room_code is the primary key. Each successful fetch overwrites the
+    raw ``markdown`` + ``title``. Each successful enhancement overwrites
+    ``enhanced_markdown`` + the provider snapshot. Timestamps let the UI
+    show « scrappé il y a X » / « réécrit il y a Y ».
+    """
+
+    __tablename__ = "cached_courses"
+
+    room_code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(500), default="")
+    markdown: Mapped[str] = mapped_column(Text, default="")
+    sections_json: Mapped[str] = mapped_column(Text, default="[]")
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    enhanced_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enhanced_provider_kind: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    enhanced_provider_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    enhanced_style: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    enhanced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )

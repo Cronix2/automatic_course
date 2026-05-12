@@ -53,12 +53,29 @@ PRESETS: List[ProviderPreset] = [
     ),
     ProviderPreset(
         kind="github_models",
-        label="GitHub Models",
-        description="Modèles hébergés par GitHub. Authentification OAuth ou PAT (`models:read`).",
+        label="GitHub Models (Azure)",
+        description=(
+            "Catalogue Azure AI accessible via PAT GitHub : GPT-4o, o1, Phi, "
+            "Llama, Mistral, Cohere. ⚠ Ce n'est PAS GitHub Copilot et ne contient "
+            "ni Claude, ni Gemini, ni Grok — pour ceux-là utilise OpenRouter."
+        ),
         default_model="gpt-4o-mini",
         default_base_url=None,
         auth_methods=["oauth", "api_key"],
         api_key_help="https://github.com/settings/tokens (scope: models:read)",
+    ),
+    ProviderPreset(
+        kind="github_copilot",
+        label="GitHub Copilot (non officiel)",
+        description=(
+            "Utilise ton abonnement GitHub Copilot via l'endpoint privé Chat. "
+            "⚠ API non officielle (utilisée par VS Code) — peut casser sans préavis. "
+            "Authentification OAuth GitHub obligatoire ; le compte doit avoir Copilot actif."
+        ),
+        default_model="gpt-4o",
+        default_base_url=None,
+        auth_methods=["oauth", "api_key"],
+        api_key_help="Token GitHub avec accès Copilot (généré par la CLI gh ou l'extension Copilot)",
     ),
     ProviderPreset(
         kind="ollama",
@@ -68,6 +85,19 @@ PRESETS: List[ProviderPreset] = [
         default_base_url="http://localhost:11434/v1",
         auth_methods=["none"],
         needs_local_runtime=True,
+    ),
+    ProviderPreset(
+        kind="custom",
+        label="Personnalisé (OpenAI-compatible)",
+        description=(
+            "N'importe quel endpoint compatible OpenAI /v1/chat/completions "
+            "(API tierce, proxy local, serveur LLM auto-hébergé). "
+            "Tu fournis l'URL, le modèle et la clé d'API."
+        ),
+        default_model="gpt-4o-mini",
+        default_base_url="https://api.openai.com/v1",
+        auth_methods=["api_key", "none"],
+        api_key_help="Clé d'API du service distant (laisser vide si pas nécessaire).",
     ),
 ]
 

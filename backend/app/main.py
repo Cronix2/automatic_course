@@ -15,6 +15,7 @@ from starlette.responses import JSONResponse, Response
 
 from app.api import (
     routes_ai,
+    routes_courses,
     routes_oauth,
     routes_settings,
     routes_thm,
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(routes_ai.router)
     app.include_router(routes_voice.router)
     app.include_router(routes_oauth.router)
+    app.include_router(routes_courses.router)
 
     return app
 

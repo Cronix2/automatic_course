@@ -19,7 +19,7 @@ class THMStatus(BaseModel):
 
 
 # ---- Providers -------------------------------------------------------------
-ProviderKind = Literal["openrouter", "openai", "anthropic", "github_models", "ollama"]
+ProviderKind = Literal["openrouter", "openai", "anthropic", "github_models", "github_copilot", "ollama", "custom"]
 AuthMethod = Literal["api_key", "oauth", "none"]
 
 

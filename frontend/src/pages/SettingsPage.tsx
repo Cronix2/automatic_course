@@ -1,6 +1,20 @@
 import { useEffect, useState } from "react";
 import { api, apiUrl } from "../api/client";
 import { useSettingsStore } from "../store/settings";
+import SectionCard from "../components/SectionCard";
+import {
+  GitHubIcon,
+  VoiceIcon,
+  KeyIcon,
+  ShieldIcon,
+  CogIcon,
+  PlusIcon,
+  TrashIcon,
+  DownloadIcon,
+  CheckIcon,
+  SaveIcon,
+  RefreshIcon,
+} from "../components/Logo";
 
 // ---- Types -----------------------------------------------------------------
 interface Provider {
@@ -28,6 +42,17 @@ interface Preset {
   api_key_help: string | null;
   needs_local_runtime: boolean;
   oauth_supported: boolean;
+}
+
+interface VoiceInfo {
+  id: string;
+  label: string;
+  gender: string;
+  quality: string;
+  installed: boolean;
+  is_default: boolean;
+  download_url: string | null;
+  config_url: string | null;
 }
 
 // ---- Component -------------------------------------------------------------
@@ -188,20 +213,42 @@ export default function SettingsPage() {
   }
 
   return (
-    <section className="space-y-8">
-      <header>
-        <h1 className="text-2xl font-semibold">Paramètres</h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Tout est stocké localement et chiffré (AES-256-GCM).
-        </p>
+    <section className="space-y-6 max-w-5xl mx-auto">
+      <header className="rounded-2xl border border-line bg-gradient-to-br from-violet-500/10 via-bg-2/40 to-bg-1/20 p-5 sm:p-6">
+        <div className="flex items-center gap-4">
+          <div className="grid place-items-center w-12 h-12 rounded-2xl bg-violet-500/20 ring-1 ring-violet-400/30 text-violet-300">
+            <CogIcon className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-semibold text-slate-50">
+              Paramètres
+            </h1>
+            <p className="text-sm text-slate-400 mt-0.5 flex items-center gap-1.5">
+              <ShieldIcon className="w-3.5 h-3.5" /> Tout est stocké localement et
+              chiffré (AES-256-GCM).
+            </p>
+          </div>
+        </div>
       </header>
 
       {err && (
-        <div className="card border-rose-400/30 text-rose-200 text-sm">{err}</div>
+        <div className="rounded-xl border border-rose-400/30 bg-rose-500/10 text-rose-200 text-sm px-4 py-3 flex items-start justify-between gap-3">
+          <span className="whitespace-pre-wrap">{err}</span>
+          <button
+            onClick={() => setErr(null)}
+            className="text-rose-300/70 hover:text-rose-200 text-xs"
+          >
+            ✕
+          </button>
+        </div>
       )}
 
-      <div className="card">
-        <h2 className="text-lg font-semibold mb-3">État global</h2>
+      <SectionCard
+        accent="emerald"
+        icon={<CheckIcon className="w-5 h-5" />}
+        title="État global"
+        subtitle="Aperçu rapide de la configuration."
+      >
         <ul className="space-y-2 text-sm">
           {overall && (
             <>
@@ -211,10 +258,14 @@ export default function SettingsPage() {
             </>
           )}
         </ul>
-      </div>
+      </SectionCard>
 
-      <div className="card">
-        <h2 className="text-lg font-semibold mb-3">TryHackMe</h2>
+      <SectionCard
+        accent="indigo"
+        icon={<ShieldIcon className="w-5 h-5" />}
+        title="TryHackMe"
+        subtitle="Identifiants utilisés pour scraper les salles."
+      >
         {thm?.configured ? (
           <div className="flex items-center justify-between text-sm">
             <div>
@@ -223,7 +274,7 @@ export default function SettingsPage() {
               {thm.session_valid && <span className="badge-ok ml-2">session valide</span>}
             </div>
             <button className="btn-danger" onClick={deleteTHM} disabled={busy}>
-              Supprimer
+              <TrashIcon /> Supprimer
             </button>
           </div>
         ) : (
@@ -251,13 +302,12 @@ export default function SettingsPage() {
               </div>
               <div className="sm:col-span-2">
                 <button className="btn-primary" disabled={busy}>
-                  Enregistrer
+                  <SaveIcon /> Enregistrer
                 </button>
               </div>
             </form>
 
-            {/* ---- Browser-login block ---- */}
-            <div className="mt-6 rounded-lg border border-line bg-bg-2/40 p-4 text-sm space-y-3">
+            <div className="mt-6 rounded-xl border border-line bg-bg-2/40 p-4 text-sm space-y-3">
               <p className="font-medium text-slate-200">
                 CAPTCHA bloque la connexion ?
               </p>
@@ -302,7 +352,6 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              {/* Fallback: manual import */}
               <details
                 className="pt-2 border-t border-line"
                 open={thmCookieMode}
@@ -336,11 +385,14 @@ export default function SettingsPage() {
             </div>
           </>
         )}
-      </div>
+      </SectionCard>
 
-      <div className="card">
-        <h2 className="text-lg font-semibold mb-3">Providers IA</h2>
-
+      <SectionCard
+        accent="violet"
+        icon={<KeyIcon className="w-5 h-5" />}
+        title="Providers IA"
+        subtitle="Connecte un ou plusieurs modèles. Le défaut est utilisé pour les réécritures."
+      >
         <ul className="space-y-2 mb-6">
           {providers.map((p) => (
             <ProviderRow
@@ -353,21 +405,30 @@ export default function SettingsPage() {
             />
           ))}
           {providers.length === 0 && (
-            <li className="text-sm text-slate-400">Aucun provider configuré.</li>
+            <li className="text-sm text-slate-400 italic">Aucun provider configuré.</li>
           )}
         </ul>
 
         {addingKind === null ? (
           <div>
-            <div className="text-sm text-slate-300 mb-3">Ajouter un provider :</div>
+            <div className="text-sm text-slate-300 mb-3 flex items-center gap-2">
+              <PlusIcon className="w-4 h-4" /> Ajouter un provider :
+            </div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {presets.map((p) => (
                 <button
                   key={p.kind}
                   onClick={() => setAddingKind(p.kind)}
-                  className="text-left rounded-xl border border-line hover:border-line-strong bg-bg-2/40 hover:bg-bg-2/70 transition-colors p-4"
+                  className="text-left rounded-xl border border-line hover:border-violet-400/40 bg-bg-2/40 hover:bg-bg-2/70 transition-all p-4 group"
                 >
-                  <div className="font-medium">{p.label}</div>
+                  <div className="font-medium flex items-center gap-2 group-hover:text-violet-300">
+                    {p.kind === "github_copilot" || p.kind === "github_models" ? (
+                      <GitHubIcon className="w-4 h-4" />
+                    ) : (
+                      <KeyIcon className="w-4 h-4" />
+                    )}
+                    {p.label}
+                  </div>
                   <div className="text-xs text-slate-400 mt-1">{p.description}</div>
                 </button>
               ))}
@@ -387,7 +448,9 @@ export default function SettingsPage() {
             onError={setErr}
           />
         )}
-      </div>
+      </SectionCard>
+
+      <VoiceSection onError={setErr} />
     </section>
   );
 }
@@ -413,7 +476,7 @@ function AddProviderForm({
 
   const [auth, setAuth] = useState<"api_key" | "oauth" | "none">(initialAuth);
   const [apiKey, setApiKey] = useState("");
-  const [advanced, setAdvanced] = useState(false);
+  const [advanced, setAdvanced] = useState(preset.kind === "custom");
   const [model, setModel] = useState(preset.default_model);
   const [baseUrl, setBaseUrl] = useState(preset.default_base_url ?? "");
   const [busy, setBusy] = useState(false);
@@ -764,5 +827,151 @@ function ProviderRow({
         </div>
       )}
     </li>
+  );
+}
+
+
+/* ----------------------- Voice / TTS section --------------------------- */
+function VoiceSection({ onError }: { onError: (e: string) => void }) {
+  const [voices, setVoices] = useState<VoiceInfo[]>([]);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    try {
+      const list = await api<VoiceInfo[]>(/api/voice/voices);
+      setVoices(list);
+    } catch (e) {
+      onError((e as Error).message);
+    }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function setDefault(id: string) {
+    setSaving(true);
+    try {
+      await api(/api/voice/voices/default, {
+        method: "PUT",
+        body: JSON.stringify({ voice_id: id }),
+      });
+      await load();
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function install(v: VoiceInfo) {
+    if (!v.download_url) return;
+    setInstalling(v.id);
+    try {
+      await api(/api/voice/voices/install, {
+        method: "POST",
+        body: JSON.stringify({ voice_id: v.id }),
+      });
+      await load();
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setInstalling(null);
+    }
+  }
+
+  async function preview(id: string) {
+    try {
+      const resp = await fetch(apiUrl(/api/voice/tts), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: "Bonjour, je suis votre nouvelle voix pour la lecture des cours.",
+          voice: id,
+        }),
+      });
+      if (!resp.ok) throw new Error(TTS );
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play();
+      audio.onended = () => URL.revokeObjectURL(url);
+    } catch (e) {
+      onError("Aper�u impossible : " + (e as Error).message);
+    }
+  }
+
+  return (
+    <SectionCard
+      accent="emerald"
+      icon={<VoiceIcon className="w-5 h-5" />}
+      title="Voix de lecture (TTS)"
+      subtitle="Choisis la voix fran�aise utilis�e par Piper pour lire les cours."
+    >
+      <ul className="space-y-2">
+        {voices.map((v) => (
+          <li
+            key={v.id}
+            className={
+              "rounded-xl border px-4 py-3 flex flex-wrap items-center justify-between gap-3 transition-colors " +
+              (v.is_default
+                ? "bg-violet-500/10 border-violet-400/40"
+                : "bg-bg-2/40 border-line hover:border-violet-400/30")
+            }
+          >
+            <div className="min-w-0">
+              <div className="font-medium flex items-center gap-2 text-slate-100">
+                <span className="text-lg leading-none">
+                  {v.gender === "male" ? "?" : v.gender === "female" ? "?" : "�"}
+                </span>
+                {v.label}
+                {v.is_default && <span className="badge-ok">d�faut</span>}
+                {!v.installed && (
+                  <span className="text-xs text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded-full px-2 py-0.5">
+                    � t�l�charger
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-slate-500 font-mono">
+                {v.id} � qualit� {v.quality}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {v.installed ? (
+                <>
+                  <button
+                    className="btn-ghost text-xs"
+                    onClick={() => preview(v.id)}
+                    title="�couter un aper�u"
+                  >
+                    Aper�u
+                  </button>
+                  {!v.is_default && (
+                    <button
+                      className="btn-primary text-xs"
+                      onClick={() => setDefault(v.id)}
+                      disabled={saving}
+                    >
+                      <CheckIcon /> Choisir
+                    </button>
+                  )}
+                </>
+              ) : (
+                <button
+                  className="btn-primary text-xs"
+                  onClick={() => install(v)}
+                  disabled={installing === v.id}
+                >
+                  <DownloadIcon />
+                  {installing === v.id ? "Installation�" : "Installer"}
+                </button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
+        <RefreshIcon className="w-3 h-3" />
+        Les mod�les sont t�l�charg�s depuis Hugging Face dans models/piper.
+      </p>
+    </SectionCard>
   );
 }

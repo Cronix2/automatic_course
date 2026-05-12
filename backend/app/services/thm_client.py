@@ -23,6 +23,7 @@ from playwright.async_api import (
     Browser,
     BrowserContext,
     Page,
+    TimeoutError as PWTimeout,
     async_playwright,
 )
 
@@ -400,22 +401,66 @@ class THMClient:
         self._browser: Browser | None = None
 
     # Stealth script: hide Playwright/automation fingerprints to reduce
-    # the chance of TryHackMe showing a CAPTCHA.
+    # the chance of TryHackMe showing a CAPTCHA.  Covers the most common
+    # signals reCAPTCHA / Cloudflare Turnstile inspect.
     _STEALTH_SCRIPT = """
+        // 1. navigator.webdriver -> undefined (the #1 automation tell)
         Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-        Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+
+        // 2. Realistic plugins / mimeTypes (empty array is a tell)
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => {
+                const pdf = {name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format'};
+                return [pdf, pdf, pdf, pdf, pdf];
+            }
+        });
+        Object.defineProperty(navigator, 'mimeTypes', {get: () => [{type: 'application/pdf'}]});
+
+        // 3. Languages (must match Accept-Language header sent by Chromium)
         Object.defineProperty(navigator, 'languages', {get: () => ['fr-FR','fr','en-US','en']});
-        if (!window.chrome) { window.chrome = {runtime: {}}; }
+
+        // 4. window.chrome object (missing in headless)
+        if (!window.chrome) {
+            window.chrome = {runtime: {}, loadTimes: function(){}, csi: function(){}, app: {}};
+        }
+
+        // 5. Permissions API consistency
+        const _origQuery = window.navigator.permissions && window.navigator.permissions.query;
+        if (_origQuery) {
+            window.navigator.permissions.query = (p) =>
+                p.name === 'notifications'
+                    ? Promise.resolve({state: Notification.permission})
+                    : _origQuery(p);
+        }
+
+        // 6. WebGL vendor / renderer (headless reports SwiftShader)
+        const getParameter = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(p) {
+            if (p === 37445) return 'Intel Inc.';            // UNMASKED_VENDOR_WEBGL
+            if (p === 37446) return 'Intel Iris OpenGL Engine'; // UNMASKED_RENDERER_WEBGL
+            return getParameter.call(this, p);
+        };
+
+        // 7. Hardware concurrency / device memory (default 1 is a tell)
+        Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
+        Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+
+        // 8. Hide that 'webdriver' is a property on window/document
+        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+        delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
     """
+    # Chrome 150 stable (May 2026).  Older UAs are now flagged by Google.
     _STEALTH_UA = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
+        "Chrome/150.0.0.0 Safari/537.36"
     )
     _LAUNCH_ARGS = [
         "--disable-blink-features=AutomationControlled",
         "--no-first-run",
         "--no-default-browser-check",
+        "--disable-features=IsolateOrigins,site-per-process",
     ]
 
     async def __aenter__(self) -> "THMClient":
@@ -737,28 +782,446 @@ class THMClient:
 
     # ------------------------------------------------------------------
     async def fetch_room(self, session: THMSession, room_code: str) -> CourseContent:
+        """Fetch a TryHackMe room, including the content of every task.
+
+        Strategy:
+        1. Navigate to /room/<code> and wait for the SPA to hydrate.
+        2. Locate the task list (sidebar buttons) via robust selectors.
+        3. Click each task in turn, wait for the task content to render,
+           and concatenate the resulting markdown.
+        Falls back to single-page extraction if no task list is found.
+        """
         ctx = await self._new_context(session)
         try:
+            # Log session cookies for diagnosis (name/domain only, no value)
+            try:
+                cookie_summary = [
+                    f"{c.get('name')}@{c.get('domain')}" for c in (session.cookies or [])
+                ]
+                logger.info(
+                    "fetch_room: %d cookies attached: %s",
+                    len(cookie_summary),
+                    cookie_summary,
+                )
+            except Exception:
+                pass
+
             page = await ctx.new_page()
             url = f"{self._settings.thm_base_url}/room/{room_code}"
-            await page.goto(url, wait_until="networkidle")
+            logger.info("fetch_room: navigating to %s", url)
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            except PWTimeout:
+                logger.warning("fetch_room: domcontentloaded timeout, continuing anyway")
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except PWTimeout:
+                logger.info("fetch_room: networkidle not reached (SPA), continuing")
+
             final_url = page.url
             title = await page.title()
-            # Detect redirect to login / home (session rejected by TryHackMe)
-            if "/login" in final_url or title in (
-                "TryHackMe | Cyber Security Training",
-                "TryHackMe",
-            ):
+            logger.info("fetch_room: final_url=%s title=%r", final_url, title)
+
+            if "/login" in final_url.lower() or "/signin" in final_url.lower():
+                try:
+                    await page.screenshot(path=f"/tmp/thm_fetch_fail_{room_code}.png")
+                    html_dump = await page.content()
+                    with open(f"/tmp/thm_fetch_fail_{room_code}.html", "w") as f:
+                        f.write(html_dump)
+                except Exception:
+                    pass
                 raise RuntimeError(
-                    "La session TryHackMe n'est pas reconnue par le serveur. "
-                    "Ré-exporte ton cookie depuis le navigateur (DevTools → "
-                    "Application → Cookies → connect.sid) et importe-le dans Réglages."
+                    "La session TryHackMe a expiré côté serveur (redirection vers /login). "
+                    "Reconnecte-toi via 'Ouvrir le navigateur et se connecter'."
                 )
-            html = await page.content()
+
+            # ---- Per-task scraping ----------------------------------------
+            # Step A (JS): locate every task HEADER node in document order
+            # and return a stable handle (we attach data-thm-task-idx=N).
+            # Step B (Python/Playwright): for each header, click & wait, then
+            # capture the DOM range between this header and the next one.
+            tag_headers_js = r"""
+            () => {
+              const taskRe = /^Task\s+\d+\b/i;
+              // Strip any prior tagging
+              document.querySelectorAll('[data-thm-task-idx]').forEach(el => {
+                el.removeAttribute('data-thm-task-idx');
+                el.removeAttribute('data-thm-task-title');
+              });
+
+              const all = Array.from(document.querySelectorAll(
+                'button, [role="button"], [aria-expanded], h1, h2, h3, h4, [class*="task" i]'
+              ));
+              const seen = new Set();
+              const headers = [];
+              for (const el of all) {
+                const txt = (el.innerText || '').trim();
+                if (!txt) continue;
+                const first = txt.split('\n')[0].trim();
+                if (!taskRe.test(first)) continue;
+                if (first.length > 250) continue;
+                if (seen.has(first)) continue;
+                seen.add(first);
+                headers.push({el, title: first});
+              }
+              // Sort by document order
+              headers.sort((a, b) => {
+                const pos = a.el.compareDocumentPosition(b.el);
+                if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+                if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+                return 0;
+              });
+              headers.forEach((h, i) => {
+                h.el.setAttribute('data-thm-task-idx', String(i));
+                h.el.setAttribute('data-thm-task-title', h.title);
+              });
+              return headers.map((h, i) => ({idx: i, title: h.title}));
+            }
+            """
+            tagged = await page.evaluate(tag_headers_js)
+            logger.info("fetch_room: tagged %d task headers: %s",
+                        len(tagged), [t["title"] for t in tagged])
+
+            task_payloads: List[dict] = []
+            for entry in tagged:
+                idx = entry["idx"]
+                ttitle = entry["title"]
+
+                # ---- Click phase ------------------------------------------
+                # Strategy: try a REAL Playwright click first (real mouse
+                # event → React handlers fire reliably). If that times out
+                # or fails, fall back to multi-target JS dispatch on
+                # ancestors and descendants.
+                clicked = False
+                header_loc = page.locator(f'[data-thm-task-idx="{idx}"]').first
+                try:
+                    await header_loc.scroll_into_view_if_needed(timeout=2000)
+                except Exception:
+                    pass
+                # Capture the text BEFORE click so we can detect a body change.
+                before_main_text = ""
+                try:
+                    before_main_text = await page.evaluate(
+                        "() => ((document.querySelector('main') || document.body).innerText || '').trim()"
+                    )
+                except Exception:
+                    before_main_text = ""
+
+                try:
+                    await header_loc.click(timeout=2500, force=True)
+                    clicked = True
+                except Exception as exc:
+                    logger.debug(
+                        "fetch_room: real click failed for task %d (%s): %s — trying JS dispatch",
+                        idx, ttitle, exc,
+                    )
+                    # Try clicking a descendant button if the header itself
+                    # is not the clickable target.
+                    try:
+                        descendant_btn = page.locator(
+                            f'[data-thm-task-idx="{idx}"] button, '
+                            f'[data-thm-task-idx="{idx}"] [role="button"], '
+                            f'[data-thm-task-idx="{idx}"] [aria-expanded]'
+                        ).first
+                        await descendant_btn.click(timeout=1500, force=True)
+                        clicked = True
+                    except Exception:
+                        pass
+
+                if not clicked:
+                    try:
+                        await page.evaluate(
+                            """
+                            (idx) => {
+                              const h = document.querySelector(`[data-thm-task-idx="${idx}"]`);
+                              if (!h) return false;
+                              h.scrollIntoView({block: 'center'});
+                              const fire = (n) => {
+                                if (!n) return;
+                                try { n.click(); } catch (e) {}
+                                try {
+                                  n.dispatchEvent(new MouseEvent('click', {
+                                    bubbles: true, cancelable: true, view: window
+                                  }));
+                                } catch (e) {}
+                              };
+                              let node = h;
+                              for (let i = 0; i < 6 && node; i++) {
+                                fire(node);
+                                node = node.parentElement;
+                              }
+                              h.querySelectorAll(
+                                'button, [role="button"], [aria-expanded]'
+                              ).forEach(fire);
+                              return true;
+                            }
+                            """,
+                            idx,
+                        )
+                        clicked = True
+                    except Exception as exc:
+                        logger.debug(
+                            "fetch_room: JS click also failed for task %d (%s): %s",
+                            idx, ttitle, exc,
+                        )
+
+                # ---- Wait phase -------------------------------------------
+                # Tasks display one at a time → after clicking, <main> text
+                # must change (new body becomes visible, old one disappears).
+                # Poll up to 4s for: (1) main text changed AND (2) range
+                # between header[idx] and header[idx+1] is non-empty.
+                payload = None
+                for _ in range(27):  # 27 * 150ms ≈ 4s
+                    payload = await page.evaluate(
+                        """
+                        (idx) => {
+                          const cur = document.querySelector(`[data-thm-task-idx="${idx}"]`);
+                          if (!cur) return null;
+                          const nxt = document.querySelector(`[data-thm-task-idx="${idx + 1}"]`);
+                          try {
+                            const range = document.createRange();
+                            range.setStartAfter(cur);
+                            if (nxt) {
+                              range.setEndBefore(nxt);
+                            } else {
+                              const main = document.querySelector('main') || document.body;
+                              if (main.lastChild) range.setEndAfter(main.lastChild);
+                              else return null;
+                            }
+                            const frag = range.cloneContents();
+                            const tmp = document.createElement('div');
+                            tmp.appendChild(frag);
+                            const mainEl = document.querySelector('main') || document.body;
+                            return {
+                              html: tmp.innerHTML,
+                              text_len: (tmp.innerText || '').trim().length,
+                              main_text: (mainEl.innerText || '').trim(),
+                            };
+                          } catch (e) {
+                            return {error: String(e)};
+                          }
+                        }
+                        """,
+                        idx,
+                    )
+                    if not payload:
+                        await page.wait_for_timeout(150)
+                        continue
+                    has_body = payload.get("text_len", 0) > 120
+                    main_changed = payload.get("main_text", "") != before_main_text
+                    if has_body and (main_changed or idx == 0):
+                        break
+                    await page.wait_for_timeout(150)
+
+                if not payload:
+                    payload = {"html": "", "text_len": 0}
+                payload.pop("main_text", None)
+                payload["title"] = ttitle
+                payload["clicked"] = clicked
+                task_payloads.append(payload)
+                logger.info(
+                    "fetch_room: task %d %r → clicked=%s text_len=%d",
+                    idx, ttitle, clicked, payload.get("text_len", 0),
+                )
+
+            logger.info(
+                "fetch_room: per-task extracted %d tasks: %s",
+                len(task_payloads),
+                [(p.get("title"), p.get("text_len")) for p in task_payloads],
+            )
+
+            # ---- Fallback A: sidebar navigation links ---------------------
+            # If most tasks have no content, the headers we clicked are
+            # probably anchor/heading nodes in the article view, not the
+            # sidebar nav items. Try clicking the sidebar list instead and
+            # capture page.main after each click.
+            empty_count = sum(1 for p in task_payloads if p.get("text_len", 0) < 80)
+            if task_payloads and empty_count >= max(2, len(task_payloads) // 2):
+                # Dump page state for debugging
+                try:
+                    await page.screenshot(path=f"/tmp/thm_fetch_dom_{room_code}.png", full_page=True)
+                    dom_html = await page.content()
+                    with open(f"/tmp/thm_fetch_dom_{room_code}.html", "w") as f:
+                        f.write(dom_html)
+                    logger.info(
+                        "fetch_room: dumped DOM to /tmp/thm_fetch_dom_%s.{png,html}",
+                        room_code,
+                    )
+                except Exception:
+                    pass
+
+                logger.info(
+                    "fetch_room: %d/%d tasks empty — trying sidebar nav fallback",
+                    empty_count,
+                    len(task_payloads),
+                )
+                # Look for sidebar items (left nav) whose text matches /^Task N/
+                sidebar_js = r"""
+                () => {
+                  const taskRe = /^Task\s+\d+\b/i;
+                  // Sidebar items are typically <a> or clickable <div> in a
+                  // narrow left column. Heuristic: visible elements with
+                  // task-like text whose width < 320px.
+                  const candidates = Array.from(document.querySelectorAll(
+                    'a, [role="button"], [role="link"], button, li'
+                  ));
+                  const seen = new Set();
+                  const items = [];
+                  for (const el of candidates) {
+                    const txt = (el.innerText || '').trim();
+                    if (!txt) continue;
+                    const first = txt.split('\n')[0].trim();
+                    if (!taskRe.test(first)) continue;
+                    if (first.length > 250) continue;
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width > 380) continue;  // not sidebar
+                    if (rect.width === 0 || rect.height === 0) continue;
+                    if (seen.has(first)) continue;
+                    seen.add(first);
+                    items.push({el, title: first, x: rect.x});
+                  }
+                  items.sort((a, b) => {
+                    const pos = a.el.compareDocumentPosition(b.el);
+                    if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+                    if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+                    return 0;
+                  });
+                  document.querySelectorAll('[data-thm-nav-idx]').forEach(el => {
+                    el.removeAttribute('data-thm-nav-idx');
+                  });
+                  items.forEach((it, i) => {
+                    it.el.setAttribute('data-thm-nav-idx', String(i));
+                  });
+                  return items.map((it, i) => ({idx: i, title: it.title}));
+                }
+                """
+                nav_items = await page.evaluate(sidebar_js)
+                logger.info("fetch_room: sidebar fallback found %d items", len(nav_items))
+
+                if nav_items:
+                    new_payloads: List[dict] = []
+                    for entry in nav_items:
+                        nidx = entry["idx"]
+                        ntitle = entry["title"]
+                        try:
+                            await page.evaluate(
+                                """
+                                (idx) => {
+                                  const el = document.querySelector(`[data-thm-nav-idx="${idx}"]`);
+                                  if (!el) return;
+                                  el.scrollIntoView({block: 'center'});
+                                  try { el.click(); } catch (e) {}
+                                  try {
+                                    el.dispatchEvent(new MouseEvent('click', {
+                                      bubbles: true, cancelable: true, view: window
+                                    }));
+                                  } catch (e) {}
+                                }
+                                """,
+                                nidx,
+                            )
+                        except Exception as exc:
+                            logger.debug("fetch_room: sidebar click failed for %s: %s", ntitle, exc)
+                            continue
+                        await page.wait_for_timeout(400)
+                        # Capture <main> content
+                        body_data = await page.evaluate(
+                            """
+                            () => {
+                              const main = document.querySelector('main') || document.body;
+                              return {
+                                html: main.innerHTML,
+                                text_len: (main.innerText || '').trim().length,
+                              };
+                            }
+                            """
+                        )
+                        if body_data:
+                            body_data["title"] = ntitle
+                            new_payloads.append(body_data)
+                    # Use sidebar payloads if they yielded more content
+                    new_with_content = sum(1 for p in new_payloads if p.get("text_len", 0) > 200)
+                    if new_with_content > (len(task_payloads) - empty_count):
+                        logger.info(
+                            "fetch_room: sidebar fallback succeeded (%d tasks with content)",
+                            new_with_content,
+                        )
+                        task_payloads = new_payloads
+
+            sections_md: List[str] = []
+            section_titles: List[str] = []
+
+            if task_payloads:
+                for p in task_payloads:
+                    title_t = (p.get("title") or "").strip() or "Task"
+                    html_frag = p.get("html") or ""
+                    if not html_frag or p.get("text_len", 0) < 80:
+                        # Empty or just the header — keep title as section
+                        # marker but no body.
+                        logger.info("fetch_room: task %r has no body", title_t)
+                        sections_md.append(f"## {title_t}\n\n_(Aucun contenu visible)_")
+                        section_titles.append(title_t)
+                        continue
+                    body_md = self._extract_markdown_fragment(html_frag)
+                    if not body_md:
+                        body_md = "_(Contenu non extractible)_"
+                    # Remove duplicate title at the top of body
+                    if body_md.lstrip().lower().startswith(title_t.lower()):
+                        body_md = body_md.split("\n", 1)[1] if "\n" in body_md else ""
+                    sections_md.append(f"## {title_t}\n\n{body_md.strip()}")
+                    section_titles.append(title_t)
+
+            if not sections_md:
+                logger.warning("fetch_room: no per-task content, falling back to whole-page scrape")
+                html = await page.content()
+                return self._html_to_markdown(html, room_code=room_code, title=title)
+
+            markdown = "\n\n".join(sections_md)
+            logger.info(
+                "fetch_room: aggregated %d tasks, %d chars total",
+                len(sections_md),
+                len(markdown),
+            )
+            return CourseContent(
+                room_code=room_code,
+                title=title or room_code,
+                markdown=markdown,
+                sections=section_titles,
+            )
         finally:
             await ctx.close()
 
-        return self._html_to_markdown(html, room_code=room_code, title=title)
+    @staticmethod
+    def _extract_markdown_fragment(html: str) -> str:
+        """Extract text/markdown from an HTML fragment (single task body)."""
+        soup = BeautifulSoup(html, "lxml")
+        for tag in soup(["script", "style", "nav", "footer", "header", "button"]):
+            tag.decompose()
+        parts: List[str] = []
+        for el in soup.descendants:
+            name = getattr(el, "name", None)
+            if name in {"h1", "h2", "h3", "h4"}:
+                t = el.get_text(" ", strip=True)
+                if t:
+                    parts.append(f"\n### {t}\n")
+            elif name == "p":
+                t = el.get_text(" ", strip=True)
+                if t:
+                    parts.append(t)
+            elif name == "li":
+                t = el.get_text(" ", strip=True)
+                if t:
+                    parts.append(f"- {t}")
+            elif name == "pre":
+                t = el.get_text("", strip=True)
+                if t:
+                    parts.append(f"\n```\n{t}\n```\n")
+            elif name == "code" and el.parent and el.parent.name != "pre":
+                t = el.get_text("", strip=True)
+                if t and len(t) < 200:
+                    parts.append(f"`{t}`")
+        return "\n".join(p for p in parts if p)
+
 
     @staticmethod
     def _html_to_markdown(html: str, *, room_code: str, title: str) -> CourseContent:

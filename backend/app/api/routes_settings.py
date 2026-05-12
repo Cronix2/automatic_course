@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from loguru import logger
 
 from app.api.deps import db_session
 from app.db.models import ProviderConfig
@@ -332,6 +333,24 @@ async def list_provider_models(
             "Cohere-command-r-plus-08-2024",
             "AI21-Jamba-1.5-Large",
         ],
+        "github_copilot": [
+            "gpt-4o",
+            "gpt-4.1",
+            "gpt-5",
+            "gpt-5-mini",
+            "o1",
+            "o3-mini",
+            "o4-mini",
+            "claude-3.5-sonnet",
+            "claude-3.7-sonnet",
+            "claude-sonnet-4",
+            "claude-sonnet-4.5",
+            "claude-opus-4",
+            "claude-opus-4.1",
+            "gemini-2.0-flash-001",
+            "gemini-2.5-pro",
+            "grok-code-fast-1",
+        ],
         "ollama": [
             "llama3.1:8b",
             "llama3.2:3b",
@@ -352,6 +371,7 @@ async def list_provider_models(
             "openai": "https://api.openai.com/v1",
             "anthropic": "https://api.anthropic.com/v1",
             "github_models": "https://models.inference.ai.azure.com",
+            "github_copilot": "https://api.githubcopilot.com",
             "ollama": "http://localhost:11434/v1",
         }
         base = defaults.get(row.kind)
@@ -373,9 +393,28 @@ async def list_provider_models(
             catalog = [preset.default_model] + catalog
         return catalog
 
-    # Anthropic doesn't expose an OpenAI-style /models endpoint — return curated.
+    # Anthropic: no /models endpoint we can hit. Return curated.
     if row.kind == "anthropic" or not base:
         return _curated()
+
+    # GitHub Copilot: dynamic catalog fetched via the unofficial /models
+    # endpoint after exchanging the GH token for a short Copilot token.
+    if row.kind == "github_copilot":
+        from app.services.providers.github_copilot import fetch_copilot_models
+
+        if not token:
+            return _curated()
+        try:
+            ids = await fetch_copilot_models(token)
+        except Exception as exc:
+            logger.warning("github_copilot: model fetch failed: %s", exc)
+            return _curated()
+        if not ids:
+            return _curated()
+        # Put default model first if present
+        if preset and preset.default_model in ids:
+            ids = [preset.default_model] + [m for m in ids if m != preset.default_model]
+        return ids
 
     # Build candidate URLs (some hosts expose /models, others /v1/models).
     base_clean = base.rstrip("/")

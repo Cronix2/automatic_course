@@ -57,11 +57,15 @@ class OpenAICompatibleProvider(AIProvider):
                         obj = json.loads(data)
                     except json.JSONDecodeError:
                         continue
-                    delta = (
-                        obj.get("choices", [{}])[0].get("delta", {}).get("content")
-                    )
-                    if delta:
-                        yield delta
+                    # Some providers (GitHub Models, Azure) send heartbeat
+                    # chunks with empty `choices: []` or omit `delta`.
+                    choices = obj.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = (choices[0] or {}).get("delta") or {}
+                    content = delta.get("content")
+                    if content:
+                        yield content
 
 
 class OpenRouterProvider(OpenAICompatibleProvider):
@@ -82,3 +86,10 @@ class GitHubModelsProvider(OpenAICompatibleProvider):
 class OllamaProvider(OpenAICompatibleProvider):
     kind = "ollama"
     default_base_url = "http://localhost:11434/v1"
+
+
+class CustomOpenAIProvider(OpenAICompatibleProvider):
+    """Generic OpenAI-compatible endpoint (user-supplied base_url + model)."""
+
+    kind = "custom"
+    default_base_url = "https://api.openai.com/v1"

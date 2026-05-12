@@ -10,9 +10,19 @@ services:
     env_file: .env
     environment:
       - APP_ENV=${APP_ENV:-production}
+      # WSLg display passthrough: Chromium headful s'affiche sur le bureau Windows.
+      - DISPLAY=${DISPLAY:-:0}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
+      - XDG_RUNTIME_DIR=/tmp/runtime-root
+      - PULSE_SERVER=${PULSE_SERVER:-/mnt/wslg/PulseServer}
     volumes:
       - ./data:/app/data
       - ./models:/app/models
+      # Live-mount du code: pas besoin de rebuild à chaque modif Python.
+      - ./backend/app:/app/app
+      # WSLg sockets (X11 + Wayland) — montés en lecture seule
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg:/mnt/wslg
     ports:
       - "${BACKEND_PORT:-8001}:8001"
     healthcheck:

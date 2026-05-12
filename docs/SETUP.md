@@ -24,7 +24,14 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-Le script crée `.env` automatiquement et génère `APP_MASTER_KEY` (clé AES 256 bits) et `SESSION_SECRET`. Ouvre ensuite **<http://localhost:5173>**.
+Le script `deploy.sh` (Linux/macOS/WSL) exécute **4 phases interactives** :
+
+1. **Audit** — vérifie Docker, ports libres, présence de `.env`, voix Piper installées, support WSLg pour le navigateur THM.
+2. **Repair** — génère `APP_MASTER_KEY` (AES 256 bits) et `SESSION_SECRET` si absents, télécharge la voix Piper si besoin (demande confirmation).
+3. **Deploy** — build (legacy builder forcé via `DOCKER_BUILDKIT=0` pour éviter les corruptions WSL2 sur les gros layers Playwright/Chromium) puis `docker compose up -d`.
+4. **Verify** — health checks backend/frontend, affichage du résumé final avec URLs.
+
+Ouvre ensuite **<http://localhost:5173>**.
 
 > 💡 **Si tu lances `docker compose up` directement sans passer par
 > `deploy.sh`/`deploy.ps1`** et que `APP_MASTER_KEY` / `SESSION_SECRET` sont
@@ -37,9 +44,11 @@ Le script crée `.env` automatiquement et génère `APP_MASTER_KEY` (clé AES 25
 ```bash
 docker compose logs -f backend       # logs backend
 docker compose logs -f frontend      # logs frontend
-docker compose restart backend       # redémarrer
+docker compose restart backend       # redémarrer (suffit pour code Python — montage live)
 ./deploy.sh down                     # tout arrêter
-./deploy.sh rebuild                  # rebuild sans cache
+./deploy.sh --rebuild                # rebuild --no-cache --pull
+./deploy.sh --yes                    # non-interactif (accepte tous les défauts)
+./deploy.sh --skip-models            # saute le téléchargement des voix Piper
 ```
 
 ---
