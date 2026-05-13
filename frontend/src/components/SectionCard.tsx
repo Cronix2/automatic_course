@@ -22,19 +22,18 @@ export default function SectionCard({
   className?: string;
 }) {
   const accentMap: Record<string, string> = {
-    violet:   "from-violet-500/25 to-violet-500/0  text-violet-300  ring-violet-400/20",
-    indigo:   "from-indigo-500/25 to-indigo-500/0  text-indigo-300  ring-indigo-400/20",
-    emerald:  "from-emerald-500/25 to-emerald-500/0 text-emerald-300 ring-emerald-400/20",
-    amber:    "from-amber-500/25 to-amber-500/0   text-amber-300   ring-amber-400/20",
-    rose:     "from-rose-500/25 to-rose-500/0     text-rose-300    ring-rose-400/20",
-    sky:      "from-sky-500/25 to-sky-500/0       text-sky-300     ring-sky-400/20",
+    violet:   "bg-violet-500/15  text-violet-300  ring-violet-400/25",
+    indigo:   "bg-indigo-500/15  text-indigo-300  ring-indigo-400/25",
+    emerald:  "bg-emerald-500/15 text-emerald-300 ring-emerald-400/25",
+    amber:    "bg-amber-500/15   text-amber-300   ring-amber-400/25",
+    rose:     "bg-rose-500/15    text-rose-300    ring-rose-400/25",
+    sky:      "bg-sky-500/15     text-sky-300     ring-sky-400/25",
   };
   const cls = accentMap[accent] ?? accentMap.violet;
   return (
     <section
       className={
-        "rounded-2xl border border-line bg-gradient-to-b from-bg-2/60 to-bg-1/40 " +
-        "shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_30px_-8px_rgba(0,0,0,0.5)] " +
+        "rounded-2xl border border-line bg-bg-1/70 " +
         "p-5 sm:p-6 " + className
       }
     >
@@ -42,8 +41,7 @@ export default function SectionCard({
         {icon && (
           <div
             className={
-              "shrink-0 grid place-items-center w-10 h-10 rounded-xl " +
-              "bg-gradient-to-br ring-1 " + cls
+              "shrink-0 grid place-items-center w-10 h-10 rounded-xl ring-1 " + cls
             }
           >
             {icon}

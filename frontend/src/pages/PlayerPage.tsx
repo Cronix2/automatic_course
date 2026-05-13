@@ -111,11 +111,15 @@ function PlayerInner() {
 
   useEffect(() => {
     if (!roomCode) return;
+    let cancelled = false;
     (async () => {
+      let hasMarkdown = false;
       try {
         const c = await api<CachedCourse>(`/api/courses/${roomCode}`);
+        if (cancelled) return;
         setCache(c);
         if (c.markdown) {
+          hasMarkdown = true;
           setCourse({
             room_code: c.room_code,
             title: c.title,
@@ -125,9 +129,17 @@ function PlayerInner() {
         }
         if (c.enhanced_markdown) setEnhanced(c.enhanced_markdown);
       } catch {
-        /* 404 → no cache yet, fine */
+        /* 404 → no cache yet, will auto-fetch below */
+      }
+      // Auto-fetch from TryHackMe if we have nothing cached yet.
+      if (!cancelled && !hasMarkdown) {
+        fetchRoom();
       }
     })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode]);
 
   /* ---------- save helpers ---------- */
@@ -367,7 +379,7 @@ function PlayerInner() {
   return (
     <section className="space-y-6 max-w-5xl mx-auto">
       {/* ---------- top header ---------- */}
-      <header className="rounded-2xl border border-line bg-gradient-to-br from-violet-500/10 via-bg-2/40 to-bg-1/20 p-5 sm:p-6">
+      <header className="rounded-2xl border border-line bg-bg-1/70 p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="min-w-0">
             <div className="text-xs uppercase tracking-wider text-violet-300/80">
@@ -577,7 +589,7 @@ function PlayerInner() {
             <div className="ml-2 flex items-center gap-2 text-xs text-slate-400">
               <div className="h-1.5 w-32 rounded-full bg-bg-2 overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-violet-400 to-emerald-400 transition-all"
+                  className="h-full bg-violet-400 transition-all"
                   style={{
                     width: `${(tts.progress.current / Math.max(1, tts.progress.total)) * 100}%`,
                   }}

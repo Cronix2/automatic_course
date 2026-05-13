@@ -835,6 +835,36 @@ class THMClient:
                     "Reconnecte-toi via 'Ouvrir le navigateur et se connecter'."
                 )
 
+            # ---- Auto-join the room if the account is not enrolled --------
+            # TryHackMe hides the tasks behind a "Join Room" CTA when the
+            # logged-in user has not joined yet. We try to click it and
+            # wait for the task list to appear before scraping.
+            try:
+                join_selectors = [
+                    'button:has-text("Join Room")',
+                    'button:has-text("Join room")',
+                    'button:has-text("Rejoindre")',
+                    'a:has-text("Join Room")',
+                    '[data-testid="join-room"]',
+                ]
+                for sel in join_selectors:
+                    btn = page.locator(sel).first
+                    try:
+                        if await btn.count() and await btn.is_visible():
+                            logger.info("fetch_room: clicking 'Join Room' (%s)", sel)
+                            await btn.click(timeout=3000, force=True)
+                            try:
+                                await page.wait_for_load_state(
+                                    "networkidle", timeout=10000
+                                )
+                            except PWTimeout:
+                                pass
+                            break
+                    except Exception:
+                        continue
+            except Exception as exc:
+                logger.debug("fetch_room: join-room probe failed: %s", exc)
+
             # ---- Per-task scraping ----------------------------------------
             # Step A (JS): locate every task HEADER node in document order
             # and return a stable handle (we attach data-thm-task-idx=N).
@@ -1257,3 +1287,95 @@ class THMClient:
             markdown=markdown,
             sections=sections,
         )
+
+    # ------------------------------------------------------------------
+    async def fetch_path(self, session: THMSession, slug: str) -> dict:
+        """Scrape a TryHackMe learning path.
+
+        Returns a dict::
+
+            {
+              "slug": <slug>,
+              "title": <human title>,
+              "description": <intro paragraph or empty>,
+              "rooms": [
+                {"room_code": "...", "title": "...", "module": "..."},
+                ...
+              ]
+            }
+
+        We extract anchors of the form ``/room/<code>`` and group them by the
+        nearest heading above them (module title).
+        """
+        ctx = await self._new_context(session)
+        try:
+            page = await ctx.new_page()
+            base = self._settings.thm_base_url
+            url = f"{base}/path/outline/{slug}"
+            logger.info("fetch_path: navigating to %s", url)
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            except PWTimeout:
+                logger.warning("fetch_path: domcontentloaded timeout, continuing")
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except PWTimeout:
+                pass
+
+            data = await page.evaluate(
+                r"""
+                () => {
+                  const title = (document.querySelector('h1') || {}).innerText || '';
+                  const desc =
+                    (document.querySelector('h1 ~ p, h1 + p, [class*="description" i]') || {}).innerText || '';
+
+                  // Collect every anchor pointing to /room/<code>
+                  const anchors = Array.from(document.querySelectorAll('a[href*="/room/"]'));
+                  const out = [];
+                  const seen = new Set();
+                  let currentModule = '';
+                  // Walk the DOM in order; track the most recent heading text.
+                  const walker = document.createTreeWalker(
+                    document.body,
+                    NodeFilter.SHOW_ELEMENT,
+                    {
+                      acceptNode: (n) => {
+                        const tag = n.tagName;
+                        if (/^H[1-6]$/.test(tag)) return NodeFilter.FILTER_ACCEPT;
+                        if (tag === 'A' && (n.getAttribute('href') || '').includes('/room/'))
+                          return NodeFilter.FILTER_ACCEPT;
+                        return NodeFilter.FILTER_SKIP;
+                      }
+                    }
+                  );
+                  let node = walker.nextNode();
+                  while (node) {
+                    if (/^H[1-6]$/.test(node.tagName)) {
+                      const t = (node.innerText || '').trim();
+                      if (t && t.length < 200) currentModule = t;
+                    } else if (node.tagName === 'A') {
+                      const href = node.getAttribute('href') || '';
+                      const m = href.match(/\/room\/([A-Za-z0-9_-]+)/);
+                      if (m) {
+                        const code = m[1].toLowerCase();
+                        if (!seen.has(code)) {
+                          seen.add(code);
+                          const label = (node.innerText || '').trim() || code;
+                          out.push({room_code: code, title: label, module: currentModule});
+                        }
+                      }
+                    }
+                    node = walker.nextNode();
+                  }
+                  return {title, description: desc, rooms: out};
+                }
+                """
+            )
+            return {
+                "slug": slug,
+                "title": (data.get("title") or slug).strip(),
+                "description": (data.get("description") or "").strip(),
+                "rooms": data.get("rooms") or [],
+            }
+        finally:
+            await ctx.close()

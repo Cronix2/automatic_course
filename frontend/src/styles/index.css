@@ -14,11 +14,8 @@ body,
 
 body {
   @apply bg-bg-0 text-slate-100 font-sans antialiased;
-  /* Calm, deep background — no neon halo. */
-  background-image:
-    radial-gradient(1200px 600px at 15% -10%, rgba(91, 78, 192, 0.12), transparent 60%),
-    radial-gradient(1000px 500px at 110% 110%, rgba(63, 78, 163, 0.10), transparent 60%),
-    linear-gradient(180deg, #0a0a14, #0a0a14);
+  /* Flat solid background, no radial halos. */
+  background-color: #0a0a14;
   background-attachment: fixed;
 }
 

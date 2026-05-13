@@ -44,18 +44,31 @@ class CachedCourseListItem(BaseModel):
 
 
 class _SaveCourseIn(BaseModel):
-    """Persist the freshly-scraped raw course in cache."""
-    room_code: str
+    """Persist the freshly-scraped raw course in cache.
+
+    ``room_code`` is taken from the URL path; if also present in the body
+    it is accepted as long as it matches (or is omitted).
+    """
+    room_code: Optional[str] = None
     title: str
     markdown: str
     sections: List[str] = []
 
 
 class _SaveEnhancedIn(BaseModel):
-    """Persist the AI-enhanced version of a cached course."""
-    room_code: str
-    enhanced_markdown: str
+    """Persist the AI-enhanced version of a cached course.
+
+    Accepts either ``enhanced_markdown`` or ``markdown`` as the body field
+    so the frontend can stay simple. The provider can be referenced either
+    by ``provider_id`` (lookup in DB) or by raw ``provider_kind`` +
+    ``provider_model`` strings (snapshot).
+    """
+    room_code: Optional[str] = None
+    enhanced_markdown: Optional[str] = None
+    markdown: Optional[str] = None
     provider_id: Optional[int] = None
+    provider_kind: Optional[str] = None
+    provider_model: Optional[str] = None
     style: Optional[str] = None
 
 
@@ -115,7 +128,7 @@ async def save_cached_course(
     payload: _SaveCourseIn,
     db: AsyncSession = Depends(db_session),
 ) -> CachedCourseOut:
-    if payload.room_code != room_code:
+    if payload.room_code and payload.room_code != room_code:
         raise HTTPException(400, "room_code mismatch between URL and body.")
     row = await db.get(CachedCourse, room_code)
     now = datetime.utcnow()
@@ -138,12 +151,13 @@ async def save_enhanced_course(
     payload: _SaveEnhancedIn,
     db: AsyncSession = Depends(db_session),
 ) -> CachedCourseOut:
-    if payload.room_code != room_code:
+    if payload.room_code and payload.room_code != room_code:
         raise HTTPException(400, "room_code mismatch between URL and body.")
     row = await db.get(CachedCourse, room_code)
     if row is None:
         raise HTTPException(404, "Fetch the raw course first before saving an enhanced version.")
-    row.enhanced_markdown = payload.enhanced_markdown or ""
+    text = payload.enhanced_markdown if payload.enhanced_markdown is not None else (payload.markdown or "")
+    row.enhanced_markdown = text
     row.enhanced_style = payload.style
     row.enhanced_at = datetime.utcnow()
     if payload.provider_id is not None:
@@ -151,6 +165,10 @@ async def save_enhanced_course(
         if provider is not None:
             row.enhanced_provider_kind = provider.kind
             row.enhanced_provider_model = provider.model
+    if payload.provider_kind:
+        row.enhanced_provider_kind = payload.provider_kind
+    if payload.provider_model:
+        row.enhanced_provider_model = payload.provider_model
     await db.commit()
     await db.refresh(row)
     logger.info(

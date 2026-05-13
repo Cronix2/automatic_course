@@ -24,6 +24,7 @@ export default function Layout() {
           </div>
           <nav className="flex items-center gap-1 text-sm">
             <NavTab to="/">Accueil</NavTab>
+            <NavTab to="/paths">Chemins</NavTab>
             <NavTab to="/courses">Cours</NavTab>
             <NavTab to="/settings">Paramètres</NavTab>
           </nav>

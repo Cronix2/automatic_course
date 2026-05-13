@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { api, apiUrl } from "../api/client";
 import { useSettingsStore } from "../store/settings";
 import SectionCard from "../components/SectionCard";
@@ -214,7 +214,7 @@ export default function SettingsPage() {
 
   return (
     <section className="space-y-6 max-w-5xl mx-auto">
-      <header className="rounded-2xl border border-line bg-gradient-to-br from-violet-500/10 via-bg-2/40 to-bg-1/20 p-5 sm:p-6">
+      <header className="rounded-2xl border border-line bg-bg-1/70 p-5 sm:p-6">
         <div className="flex items-center gap-4">
           <div className="grid place-items-center w-12 h-12 rounded-2xl bg-violet-500/20 ring-1 ring-violet-400/30 text-violet-300">
             <CogIcon className="w-6 h-6" />
@@ -830,7 +830,6 @@ function ProviderRow({
   );
 }
 
-
 /* ----------------------- Voice / TTS section --------------------------- */
 function VoiceSection({ onError }: { onError: (e: string) => void }) {
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
@@ -839,20 +838,23 @@ function VoiceSection({ onError }: { onError: (e: string) => void }) {
 
   async function load() {
     try {
-      const list = await api<VoiceInfo[]>(/api/voice/voices);
+      const list = await api<VoiceInfo[]>("/api/voice/voices");
       setVoices(list);
     } catch (e) {
       onError((e as Error).message);
     }
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function setDefault(id: string) {
     setSaving(true);
     try {
-      await api(/api/voice/voices/default, {
+      await api("/api/voice/voices/default", {
         method: "PUT",
-        body: JSON.stringify({ voice_id: id }),
+        body: JSON.stringify({ voice: id }),
       });
       await load();
     } catch (e) {
@@ -866,9 +868,9 @@ function VoiceSection({ onError }: { onError: (e: string) => void }) {
     if (!v.download_url) return;
     setInstalling(v.id);
     try {
-      await api(/api/voice/voices/install, {
+      await api("/api/voice/voices/install", {
         method: "POST",
-        body: JSON.stringify({ voice_id: v.id }),
+        body: JSON.stringify({ voice: v.id }),
       });
       await load();
     } catch (e) {
@@ -880,7 +882,7 @@ function VoiceSection({ onError }: { onError: (e: string) => void }) {
 
   async function preview(id: string) {
     try {
-      const resp = await fetch(apiUrl(/api/voice/tts), {
+      const resp = await fetch(apiUrl("/api/voice/tts"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -888,14 +890,14 @@ function VoiceSection({ onError }: { onError: (e: string) => void }) {
           voice: id,
         }),
       });
-      if (!resp.ok) throw new Error(TTS );
+      if (!resp.ok) throw new Error(`TTS ${resp.status}`);
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.play();
       audio.onended = () => URL.revokeObjectURL(url);
     } catch (e) {
-      onError("Aper�u impossible : " + (e as Error).message);
+      onError("Aperçu impossible : " + (e as Error).message);
     }
   }
 
@@ -904,7 +906,7 @@ function VoiceSection({ onError }: { onError: (e: string) => void }) {
       accent="emerald"
       icon={<VoiceIcon className="w-5 h-5" />}
       title="Voix de lecture (TTS)"
-      subtitle="Choisis la voix fran�aise utilis�e par Piper pour lire les cours."
+      subtitle="Choisis la voix française utilisée par Piper pour lire les cours."
     >
       <ul className="space-y-2">
         {voices.map((v) => (
@@ -920,18 +922,18 @@ function VoiceSection({ onError }: { onError: (e: string) => void }) {
             <div className="min-w-0">
               <div className="font-medium flex items-center gap-2 text-slate-100">
                 <span className="text-lg leading-none">
-                  {v.gender === "male" ? "?" : v.gender === "female" ? "?" : "�"}
+                  {v.gender === "male" ? "♂" : v.gender === "female" ? "♀" : "•"}
                 </span>
                 {v.label}
-                {v.is_default && <span className="badge-ok">d�faut</span>}
+                {v.is_default && <span className="badge-ok">défaut</span>}
                 {!v.installed && (
                   <span className="text-xs text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded-full px-2 py-0.5">
-                    � t�l�charger
+                    à télécharger
                   </span>
                 )}
               </div>
               <div className="text-xs text-slate-500 font-mono">
-                {v.id} � qualit� {v.quality}
+                {v.id} · qualité {v.quality}
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -940,9 +942,9 @@ function VoiceSection({ onError }: { onError: (e: string) => void }) {
                   <button
                     className="btn-ghost text-xs"
                     onClick={() => preview(v.id)}
-                    title="�couter un aper�u"
+                    title="Écouter un aperçu"
                   >
-                    Aper�u
+                    Aperçu
                   </button>
                   {!v.is_default && (
                     <button
@@ -961,17 +963,21 @@ function VoiceSection({ onError }: { onError: (e: string) => void }) {
                   disabled={installing === v.id}
                 >
                   <DownloadIcon />
-                  {installing === v.id ? "Installation�" : "Installer"}
+                  {installing === v.id ? "Installation…" : "Installer"}
                 </button>
               )}
             </div>
           </li>
         ))}
+        {voices.length === 0 && (
+          <li className="text-sm text-slate-400 italic">Chargement…</li>
+        )}
       </ul>
       <p className="text-xs text-slate-500 mt-3 flex items-center gap-1.5">
         <RefreshIcon className="w-3 h-3" />
-        Les mod�les sont t�l�charg�s depuis Hugging Face dans models/piper.
+        Les modèles sont téléchargés depuis Hugging Face dans models/piper.
       </p>
     </SectionCard>
   );
 }
+

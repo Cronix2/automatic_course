@@ -379,6 +379,109 @@ async def list_suggested() -> List[SuggestedRoom]:
     return _SUGGESTED
 
 
+# ---------- Learning paths --------------------------------------------------
+class _PathSummary(BaseModel):
+    slug: str
+    title: str
+    description: str = ""
+    difficulty: str = "info"
+    rooms_count: int = 0
+
+
+class _PathRoom(BaseModel):
+    room_code: str
+    title: str
+    module: str = ""
+
+
+class _PathDetail(BaseModel):
+    slug: str
+    title: str
+    description: str = ""
+    rooms: List[_PathRoom] = []
+
+
+# Curated catalogue. Slugs are the ones used by TryHackMe in
+# https://tryhackme.com/path/outline/<slug>
+_PATHS: List[_PathSummary] = [
+    _PathSummary(
+        slug="presecurity",
+        title="Pre Security",
+        description="Bases réseau, web, Linux & Windows avant d'attaquer la cyber.",
+        difficulty="easy",
+        rooms_count=29,
+    ),
+    _PathSummary(
+        slug="introtocyber",
+        title="Introduction à la Cyber Sécurité",
+        description="Vue d'ensemble red / blue / digital forensics.",
+        difficulty="easy",
+        rooms_count=8,
+    ),
+    _PathSummary(
+        slug="beginner",
+        title="Complete Beginner",
+        description="Démarrer en sécurité offensive depuis zéro.",
+        difficulty="easy",
+        rooms_count=40,
+    ),
+    _PathSummary(
+        slug="jrpentester",
+        title="Jr Penetration Tester",
+        description="Préparation au métier de pentester junior.",
+        difficulty="medium",
+        rooms_count=33,
+    ),
+    _PathSummary(
+        slug="webfundamentals",
+        title="Web Fundamentals",
+        description="OWASP, attaques web, Burp Suite.",
+        difficulty="medium",
+        rooms_count=12,
+    ),
+    _PathSummary(
+        slug="cyberdefense",
+        title="Cyber Defense",
+        description="SOC, blue team, threat intelligence.",
+        difficulty="medium",
+        rooms_count=26,
+    ),
+    _PathSummary(
+        slug="soclevel1",
+        title="SOC Level 1",
+        description="Analyse d'incidents, SIEM, EDR.",
+        difficulty="medium",
+        rooms_count=30,
+    ),
+]
+
+
+@router.get("/paths", response_model=List[_PathSummary])
+async def list_paths() -> List[_PathSummary]:
+    """Curated list of TryHackMe learning paths shown on the home/paths page."""
+    return _PATHS
+
+
+@router.get("/paths/{slug}", response_model=_PathDetail)
+async def get_path(
+    slug: str, db: AsyncSession = Depends(db_session)
+) -> _PathDetail:
+    """Live-scrape a TryHackMe learning path and return its room list.
+
+    Uses the configured TryHackMe session, so private/in-progress data is
+    visible only if the underlying account has access.
+    """
+    sess = await _ensure_session(db)
+    async with THMClient() as thm:
+        data = await thm.fetch_path(sess, slug)
+    return _PathDetail(
+        slug=data["slug"],
+        title=data["title"],
+        description=data.get("description", ""),
+        rooms=[_PathRoom(**r) for r in data.get("rooms", [])],
+    )
+
+
 # ---------- Fetch -----------------------------------------------------------
 class _FetchIn(BaseModel):
     """Accept either a room code or a full TryHackMe URL."""
